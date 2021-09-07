@@ -13,12 +13,15 @@
     </head>
     <body>
         <h1>Space Invaders</h1>
-        <svg id="canvas" width="600" height="600">  
+        <svg id="canvas" width="600" height="600">
+            <text id = "lives" class = "text" transform = "translate(60,20)">Lives: 3</text>
+            <text id = "score" class = "text" transform = "translate(260,20)">Score: 0</text>
+            <text id = "levels" class = "text" transform = "translate(460,20)">Level: 1</text>
             <g id="ship" transform="translate(50,550)">
             <polygon points="-15,10 15,10 0,-20">
             </polygon>
           </g>
         </svg>
-        
+        <p id = "playButton" class = "invaderButton">Click Here to Play</p>
     </body>
 </html>
