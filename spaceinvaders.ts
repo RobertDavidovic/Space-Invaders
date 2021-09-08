@@ -41,7 +41,6 @@ const AlienConstants = {
 //the game is drawn using the updateView function
 type State = Readonly<{
   totalTime: number;
-  levelTime: number;
   ship: Body;
   aliens: ReadonlyArray<Body>;
   bullets: ReadonlyArray<Body>;
@@ -53,6 +52,7 @@ type State = Readonly<{
   score: number;
   level: number;
   infinite: boolean;
+  randomNumber: number;
 }>
 
 //This type is used to reflect the position, movement speed, id...ect
@@ -68,6 +68,56 @@ type Body = Readonly<{
   collisionRadius: number;
   lives: number;
 }>
+
+//This type stores information used to generate grids. I created this class because
+//the original function used to create grids required too many different arguements
+//which made the functiond definition hard to read and long to input.
+//This was done for readability purposes.
+type GridFormation = Readonly<{
+  rowOffset:number; //Used to calculate the distance between objects in a row
+  columnOffset:number; //The vertical distance between objects in a grid
+  verticalStartPoint:number; // The grid y starting point
+  horizontalStartPoint: number //The grid x starting point
+  rowSize:number; //The number of objects in a row
+  stateProperty:string; //The property in the game state where the grid will be stored
+  xIncrementor:(x: number, offset: number)=> number; //A function used to determine horizontal distance between objects
+}>
+
+//The values used to create an alien grid in the generateBodyRow function
+const alienGrid:GridFormation = {
+  rowOffset: 35,
+  columnOffset: 35,
+  verticalStartPoint: 40,
+  horizontalStartPoint: Constants.AlienStartPoint,
+  rowSize: 10,
+  stateProperty: "aliens",
+  xIncrementor: (x: number, offset: number) => x * offset
+}
+
+/**
+   * This function is used to generate the distance between shields in a row
+   * When called by generateBodyRow each shield will be combined increments of three
+   * with a large gap inbetween them
+   * @param x The x position of a shield in a grid
+   * @param offset the distance between two shields in a grid (Before any modifications)
+   * This allows for the 3x3x3x3 formation imitating the real space invaders
+**/
+const shieldIncrementor = (x: number, offset: number): number => {
+  return x * offset + (60 * Math.floor(x / 3)) + 20
+}
+
+//The values used to create a shield grid in the generateBodyRow function
+const shieldGrid:GridFormation = {
+  rowOffset: 25,
+  columnOffset: 0,
+  verticalStartPoint: 500,
+  horizontalStartPoint: Constants.AlienStartPoint,
+  rowSize: 12,
+  stateProperty: "shields",
+  xIncrementor: shieldIncrementor
+}
+
+
 
 /**
  * This function is triggered when the window is loaded. Within it it, it
@@ -196,7 +246,7 @@ function spaceinvaders() {
    * The first element in the sub arrays represents the closest alien to the player (ie the row with the lowest y value)
    */
   const levels= [
-    [defaultAlien, tankAlien, defaultAlien], //level 1
+    [defaultAlien, defaultAlien, tankAlien], //level 1
     [defaultAlien, tankAlien, shooterAlien], //level 2
     [defaultAlien, shooterAlien, defaultAlien, shooterAlien, tankAlien], //level 3
   ]
@@ -224,7 +274,6 @@ function spaceinvaders() {
    */
   const initialState: State = {
       totalTime: 0,
-      levelTime: 0,
       ship: createShip(),
       aliens: [],
       bullets: [],
@@ -236,127 +285,202 @@ function spaceinvaders() {
       score: 0,
       level: 0,
       infinite: false,
+      randomNumber: 0
   }
 
-
-    //This Code is lowkey messed so I will explain later
-    //Since in Space invaders each row has different aliens each parameter 
-    //corresponds to one row of a type of alien to make eg, first row is shooter alien, 2nd row is strong alien ect
-    //The function works top to bottom with the new aliens being generated at the top of the canvas and for each parameter 
-    //get sent down a step
-
-  const generateBodyRow = (s: State, xCounter: number = 0, yCounter = 0, rowOffset: number, columnOffset: number, verticalStartPos: number, rowSize: number, property: PropertyKey, incrementor: (x: number, offset: number) => number, bodyCreators: BodyCreator[]) => {
-    return xCounter == rowSize ? {
-        ...s
+/**
+ * This function returns a state with an amount of bodies in a row
+ * @param s //The initial state before a row is added
+ * @param xCounter  //Used to trace the number of bodies added so far in a row and to determine x position
+ * @param yCounter  //Used to determine y position
+ * @param gridData  //The data needed to construct a row of a grid
+ * @param bodyCreators //An array of functions that return a body (This is what's used to actually add the body to a new state)
+ * @returns A state with a new row attatched
+ * 
+ * This function is used to generate a row of bodies. It works by recursively by creating a state with a row of bodies
+ * with the type of whatever bodyCreators[0] is. The reason why it accesses the first element in because each element in body creators is
+ * representative of one row so the bodies > 0, do not matter. These bodies are in an array to begin with as the parameter is given
+ * by a slice method being used by other functiions. To sum it up this function recursively just creates a row of bodies.
+ * Most of the logic is used to determine position, size and patterns of a row. It is called by other functions to generate multiple rows.
+ * BodyCreators just determines the type of Body that should be created in this row. 
+ */
+  const generateBodyRow = (s: State, xCounter: number = 0, yCounter = 0,  gridData: GridFormation, bodyCreators: BodyCreator[]) : State => {
+    return xCounter == gridData.rowSize ? { //This checks if all the bodies have been added with a new state and returns the state with the row
+        ...s 
       } :
-      generateBodyRow({
-          ...s,
-          objCount: s.objCount + 1,
-          [property]: (s[property]).concat(bodyCreators[0](s, Constants.AlienStartPoint + incrementor(xCounter, rowOffset), verticalStartPos + (columnOffset * yCounter - 1)))
-        }, //This row creates the state with the alien added to it
-        xCounter + 1, yCounter, rowOffset, columnOffset, verticalStartPos, rowSize, property, incrementor, bodyCreators)
-  } 
+      generateBodyRow({ //This is the recursive call used to create the bodies
+          ...s, objCount: s.objCount + 1, //A new body is created in one recursion so the object count must be updated
 
+           //[Get the relevant property in x to add a body to]     [Return a state with that body concacted]     [Math used to determine x position of row                         [Math used to determine the y position]
+          [gridData.stateProperty]: (s[gridData.stateProperty]).concat(bodyCreators[0](s, gridData.horizontalStartPoint + gridData.xIncrementor(xCounter,gridData.rowOffset), gridData.verticalStartPoint + (gridData.columnOffset * yCounter - 1)))
+
+        },                             
+        xCounter + 1, yCounter, gridData, bodyCreators) //Pass in all the values for recursion and increment x by one
+  }
+
+  /**
+   * This function is used to create a grid of aliens.
+   * @param s The current state of the game before the aliens are generator
+   * @param f The list of fuctions used to create an aliens in a level
+   * @returns a state with a grid of aliens attatched to it
+   * It works by recursively calling generate bodyBody row for each element in f
+   * with one element representing one row of aliens. It then slices f to
+   * pass the 2nd row and onwards... The function stops when there are no more rows that
+   * need to be created, indicated by f.length being 0
+   */
   const generateAliens = (s: State, ...f: BodyCreator[]): State => f.length == 0 ? {
     ...s
-  } : generateAliens(generateBodyRow(s, 0, f.length, AlienConstants.RowOffset, AlienConstants.ColumnOffset, AlienConstants.VerticalOffset, AlienConstants.RowSize, "aliens", (x, offset) => x * offset, f), ...f.slice(1))
+  } : generateAliens(generateBodyRow(s, 0, f.length, alienGrid, f), ...f.slice(1))
 
 
-  const shieldIncrementor = (x: number, offset: number) => {
+/**
+ * This function is used to create a row of shields
+ * @param s The current state of the game before the aliens are generator
+ * @param f The list of fuctions used to create an aliens in a level
+ * @returns a state with a row of shields attatched to it
+ * This function just calls generateBodyRow with the relevant values attatched to create shields
+ */
+  const generateShields = (s: State, ...f: BodyCreator[]): State => generateBodyRow(s, 0, f.length, shieldGrid, f)
 
-    return x * offset + (60 * Math.floor(x / 3)) + 20
-  }
-  const generateShields = (s: State, ...f: BodyCreator[]): State => f.length == 0 ? {
-    ...s
-  } : generateShields(generateBodyRow(s, 0, f.length, Constants.ShieldDistance, 0, Constants.ShieldVerticalPos, 12, "shields", shieldIncrementor, f), ...f.slice(1))
+  /**
+   * This function is used to determine the effects of collisions
+   * @param s The state of the game to check collisions for
+   * @returns A new state where the effects of the collisions are applied to s
+   * This is a funnction that is run through a pipe on tick which is used to determine
+   * if any collisions occur. Because the function handles collisions it doesn't need
+   * any arguements except for the state of the game, as it handles the current state.
+   * While some of the logic could be reduced using a function to combine different interactions
+   * I decided to seperate them in order to make logic easier to follow and to allow easier expansions
+   * of code when trying to modify specific collisions
+   */
+  const handleCollisions = (s: State) => {
+    const
+      //This filter creates a list of objects containing the information about all bullets fired by the player
+      playerBullets = s.bullets.filter((a: Body) => a.type == 'player-bullet'),
+      //Create list of enemy bullets
+      enemyBullets = s.bullets.filter((b: Body) => b.type == "enemy-bullet"),
+      //This function determines if two bodies have collided 
+      bodiesCollided = ([a, b]: [Body, Body]) : Boolean => collisionDetector(a, b) < a.collisionRadius + b.collisionRadius,
+      
+      //Find any bullets that collided with the playyer using bodiesCollided
+      collidedEnemyBullets = enemyBullets.filter(r => bodiesCollided([s.ship, r])),
+      //This boolean is used to check if the ship has been hit in this state by an enemy bullet
+      shipCollidedBullets = collidedEnemyBullets.length > 0,
+      //This determines if the ship has hit any aliens
+      shipCollidedAliens = s.aliens.filter(r => bodiesCollided([s.ship, r])).length > 0,
 
-        // check a State for collisions:
-    //   bullets destroy rocks spawning smaller ones
-    //   ship colliding with rock ends game
-    const handleCollisions = (s:State) => {
-      const
-        playerBullets = s.bullets.filter((a: Body) => a.type == 'player-bullet'),
-        bodiesCollided = ([a,b]:[Body,Body]) => collisionDetector(a,b) < a.collisionRadius + b.collisionRadius,
+      //Shield Collisions
+      allShieldAndEnemyBullets = flatMap(enemyBullets, b => s.shields.map < [Body, Body] > (r => ([b, r]))), //Create two arrays in an array consisting of all enemy bullets and shields
+      collidedShieldsAndBullets = allShieldAndEnemyBullets.filter(bodiesCollided), //Create a array of arrays of shields and enemy bullets collided with each other
+      shieldCollidedEnemyBullets = collidedShieldsAndBullets.map(([bullet, _]) => bullet), //Create a array of collided shields
+      bulletCollidedShields = collidedShieldsAndBullets.map(([_, shield]) => shield), //Create a array of collided bullets
 
-        enemyBullets = s.bullets.filter((b:Body)=>b.type == "enemy-bullet"),
-        collidedEnemyBullets = enemyBullets.filter(r=>bodiesCollided([s.ship,r])),
-        shipCollidedBullets = collidedEnemyBullets.length > 0,
-        shipCollidedAliens = s.aliens.filter(r=>bodiesCollided([s.ship,r])).length > 0,
+      //Get a list of shields that collided with aliens
+      alienCollidedShields = flatMap(s.shields, b => s.aliens.map <[Body, Body]> (r => ([b, r]))).filter(bodiesCollided).map(([shield, _]) => shield), 
+      //                                [Get two arrays of all aliens and shields]         [Filter the two arrays to find collided shields]    [Return the shields that have collided]
+      allCollidedShields = alienCollidedShields.concat(bulletCollidedShields),
 
-        
-        //Shield Collisions
-        allShieldAndEnemyBullets = flatMap(enemyBullets, b=> s.shields.map<[Body,Body]>(r=>([b,r]))),
-        collidedShieldsAndBullets = allShieldAndEnemyBullets.filter(bodiesCollided),
-        shieldCollidedEnemyBullets = collidedShieldsAndBullets.map(([bullet,_])=>bullet),
-        bulletCollidedShields = collidedShieldsAndBullets.map(([_,shield])=>shield),
-        
-        alienCollidedShields = flatMap(s.shields, b=> s.aliens.map<[Body,Body]>(r=>([b,r]))).filter(bodiesCollided).map(([shield,_])=>shield),
-        
-        allCollidedShields = alienCollidedShields.concat(bulletCollidedShields),
+      //Bullet Alien Collisions
+      allPlayerBulletsAndAliens = flatMap(playerBullets, b => s.aliens.map < [Body, Body] > (r => ([b, r]))), //Create two arrays in an array consisting of all player bullets and aliens
+      collidedBulletsAndAliens = allPlayerBulletsAndAliens.filter(bodiesCollided), //Create a array of arrays of aliens and player bullets collided with each other
+      collidedPlayerBullets = collidedBulletsAndAliens.map(([bullet, _]) => bullet), //Create a array of collided player bullets
+      collidedAliens = collidedBulletsAndAliens.map(([_, alien]) => alien),//Create a array of collided aliens
 
-        //Bullet Alien Collisions
-        allPlayerBulletsAndAliens = flatMap(playerBullets, b=> s.aliens.map<[Body,Body]>(r=>([b,r]))),
-        collidedBulletsAndAliens = allPlayerBulletsAndAliens.filter(bodiesCollided),
-        collidedPlayerBullets = collidedBulletsAndAliens.map(([bullet,_])=>bullet),
-        collidedAliens = collidedBulletsAndAliens.map(([_,alien])=>alien),
+      //We track this to change scoring depending on which alien is hit
+      collidedShooters = collidedAliens.filter((b: Body) => b.type == "shooter"),
+      collidedBasicAliens = collidedAliens.filter((b: Body) => b.type == "alien"),
+      collidedTankyAliens = collidedAliens.filter((b: Body) => b.type == "tank" && b.lives == 1), //We only want to count killed tank aliens not wounded collisions
 
-        //We track this to change scoring depending on which alien is hit
-        collidedShooters = collidedAliens.filter((b:Body)=> b.type == "shooter"), 
-        collidedBasicAliens = collidedAliens.filter((b:Body)=> b.type == "alien"),
-        collidedTankyAliens = collidedAliens.filter((b:Body)=> b.type == "tank" && b.lives == 1),
+      allCollidedBullets = [].concat(collidedEnemyBullets, collidedPlayerBullets, shieldCollidedEnemyBullets), //Create an array of all bullets collided
 
-        allCollidedBullets = [].concat(collidedEnemyBullets,collidedPlayerBullets, shieldCollidedEnemyBullets),
-
-
-        loweredCollidedShields = allCollidedShields.map((shield:Body) => <Body>{...shield, lives: shield.lives - 1}),
-        loweredAliens = collidedAliens.map((alien:Body) => <Body>{...alien, lives: alien.lives - 1})
-     // 
-      return <State>{
-        ...s,
-        ship: shipCollidedBullets ? <Body>{...s.ship, lives: s.ship.lives - 1}: s.ship,
-        aliens: (cut(s.aliens)(collidedAliens)).concat(loweredAliens),
-        bullets: cut(s.bullets)(allCollidedBullets),
-        shields: (cut(s.shields)(allCollidedShields)).concat(loweredCollidedShields),
-        exit: s.exit.concat(allCollidedBullets,collidedAliens),
-        objCount: s.objCount + collidedAliens.length,
-        status: shipCollidedAliens? 'loss' : s.status,
-        score: s.score + (collidedShooters.length * 3333) + (collidedBasicAliens.length * 1247) + (collidedTankyAliens.length * 4453)
-      }
+      //Create an array of shields containing every shield that was hit with one less life
+      loweredCollidedShields = allCollidedShields.map((shield: Body) => < Body > {...shield, lives: shield.lives - 1}), 
+      //Create an array of aliens containing every shield that was hit with one less life
+      loweredAliens = collidedAliens.map((alien: Body) => < Body > {...alien, lives: alien.lives - 1})
+  // 
+    return <State>{
+      ...s, //Return every value that isn't affected by collisioon in a new state
+      ship: shipCollidedBullets ? <Body>{...s.ship, lives: s.ship.lives - 1}: s.ship,  //Determine if the ship was hit by a bullet, if so lower the health of the ship in the next state
+      aliens: (cut(s.aliens)(collidedAliens)).concat(loweredAliens), //Remove any aliens that were hit and replace them with almost identical aliens with one less health
+      bullets: cut(s.bullets)(allCollidedBullets), //Remove collided bullets
+      shields: (cut(s.shields)(allCollidedShields)).concat(loweredCollidedShields),  //Remove any shields that were hit and replace them with almost identical aliens with one less health
+      exit: s.exit.concat(allCollidedBullets,collidedAliens), //Add collided aliens and bullet to exit (Aliens to allow for tank color change) 
+      status: shipCollidedAliens? 'loss' : s.status, //If the ship hit an alien lose the game
+      score: s.score + (collidedShooters.length * 3333) + (collidedBasicAliens.length * 1247) + (collidedTankyAliens.length * 4451) //Add scores depending on which aliens were hit 
+                                                                                                                                    //The numbers are designed to make random looking scores because
+                                                                                                                                    //I like the aesthetic
     }
-
-
-    const checkAlienPosition = (f: (c : number)=> boolean, coordinate: PropertyKey):((s:State)=>boolean) =>{
-      const filterCheck = (b:Body)=> f(b[coordinate]);
-        return (s:State)=> s.aliens.filter(filterCheck).length > 0
-    
   }
 
-  const checkAlienDirection = (s:State) => {
-    return checkAlienLeftBound(s) || checkAlienRightBound(s) ? <State>{...s, aliens: s.aliens.map(flipAlienDirection)} : <State>{...s} 
+  /**
+   * This function returns another function that checks if any given alien satisfies the position check
+   * @param f //The function used to determine the position check
+   * @param coordinate //The property of the body that needs to be checked in f
+   * @returns Another function that accepts a boolean and confirms if an alien satifies the position check
+   * I created this function as there were multiple positions that needed to be checked for all the aliens in the game
+   * and to make the code more consise and allowing the checks to be piped. 
+   */
+  const checkAlienPosition = (f: (c : number)=> boolean, coordinate: PropertyKey):((s:State)=>boolean) =>{
+    const filterCheck = (b:Body)=> f(b[coordinate]); 
+      return (s:State)=> s.aliens.filter(filterCheck).length > 0 //Filter any aliens and determine if any of them pass the filter check
   }
 
+  //Below are a list of functions that are piped to the game state in tick to determine any effects
+  //of any game states
+
+  //Boolean functions that are used to check all the aliens x directuions in check alien direction
   const checkAlienLeftBound = checkAlienPosition((x) => x < Constants.AlienStartPoint, 'x')
   const checkAlienRightBound = checkAlienPosition((x) => x > Constants.CanvasSize - Constants.AlienStartPoint, 'x')
+
+  /**
+   * Returns a state where the the direction of all aliens are flipped
+   * @param s the state that needs to be checked for the aliens direction
+   * @returns a state with flipped aliens or the current state if no flip is needed
+   * It checks if any alien has passed any of the bounds and if so flips trhe aliens. If not
+   * return the state inputted
+   */
+  const checkAlienDirection = (s:State) => {
+    return checkAlienLeftBound(s) || checkAlienRightBound(s) ? <State>{...s, aliens: s.aliens.map(flipAlienDirection)} : {...s}
+  }
+
+  //Boolean functions used to determine if any aliens have gotten too far down the canvas
   const checkAlienBottomBound = checkAlienPosition((y) => y > Constants.CanvasSize - 20, 'y')
 
+  /**
+   * Determine if the player has lost
+   * @param s the state of the game needing to be checked
+   * @returns a new state with a status of loss or the inputted state
+   * It just checks if aliens have gotten too far down or if the player has lost all
+   * of their health. If so change the game status and the lives on the player to 0 (incase player lost in way not from health loss)
+   */
   const checkAlienWin = (s:State) => {
     if(checkAlienBottomBound(s) || s.ship.lives <= 0){
-      return <State>{...s, status: 'loss'}
+      return <State>{...s, status: 'loss', ship: {...s.ship, lives: 0}}
     }
-    return <State>{...s}
+    return {...s}
   } 
 
+  /**
+   * Creates a function that can be used to check the lives of a body
+   * @param property the array of the state that needs to be checked for health
+   * @returns a function that has a property to check, with only the gamestate as input
+   * This function filters through a given property in a state and determines any bodies with
+   * less than 0 health, It then returns a state with those elements removed and added to exit
+   */
   const checkBodyLives = (property: PropertyKey) => {
     return (s: State) => {
       const deadBodies = (s[property]).filter((b:Body)=> b.lives <= 0)
       return <State>{...s, [property]: cut(s[property])(deadBodies), exit: s.exit.concat(deadBodies)}
     }
-   // const deadShields = s.shields.filter((shield:Body)=> shield.lives <= 0)
-  //  return <State>{...s, shields: cut(s.shields)(deadShields), exit: s.exit.concat(deadShields)}
   }
+
+  //These two functions check for 0 lives shields and aliens respectively
   const checkShieldLives = checkBodyLives("shields")
   const checkEnemeyLives = checkBodyLives("aliens")
   
+  //A state used to create an empty looking svg for when the game
+  //is paused from a game over or win. It is also used to
+  //have a placeholder state before a random level is selected
   const blankState = (s:State)=>{return {
     ...s,
     ship: <Body>{...s.ship, y: -700},
@@ -369,97 +493,161 @@ function spaceinvaders() {
     score: s.score,
     level: s.level
   }}
-  const handleGameOver = (s:State)=> s.status == 'loss' ? blankState({
-    ...s, status: 'loss'}):{...s}
 
+  //const generateRandomLevels = (s:State, chance: number)=>
+ // !s.infinite ? {...s} : <State>{...s, levelFormation: s.levelFormation.length == 0 ? randomLevels[chance % randomLevels.length] : []}
+   const createInfiniteLevel = (s: State)=> <State>{...s, levelFormation: randomLevels[s.randomNumber* s.totalTime % randomLevels.length], level: s.level + 1}
+   
+   const createDefaultLevel = (s: State)=> <State>{...s, bullets: [], exit: s.bullets, level: s.level + 1, score: s.score + (s.level * 2000), levelFormation: s.levelFormation.slice(1)}
+
+   const checkForNewLevel = (s: State)=> s.aliens.length == 0 && s.status == 'playing'? generateShields(generateAliens(s.infinite ? createInfiniteLevel(s) : createDefaultLevel(s), ...s.levelFormation[0]), [createShield][0]) : {...s}  
+
+  const checkEndOfDefaultLevel = (s:State) => s.levelFormation.length == 0 && s.status == 'playing' && !s.infinite && s.aliens.length == 0? <State>{...blankState(s), status: 'win'} : {...s}
+  /**
+   * This checks if there is a game over or won and triggers the blank state to display the game over screen
+   * @param s the state to check for a win/loss
+   * @returns a blankstate with the status as loss
+   * This is what creates the empty screen for the text to appear
+   */
+  const handleWinLoss = (s:State)=> s.status == 'loss' ? blankState({
+    ...s, status: 'loss'}): s.status == 'win'?  ({
+    ...s, status: 'win'}): {...s}
+
+  const handleBullets = (s:State)=>{
+    const not = <T>(f:(x:T)=>boolean)=>(x:T)=>!f(x),   //This part of the code just checks for expired bullets
+    expired = (b:Body)=>(s.totalTime - b.createTime) > 60,
+    expiredBullets:Body[] = s.bullets.filter(expired),
+    activeBullets = s.bullets.filter(not(expired));
+    return {...s, bullets: activeBullets.map(moveObject), exit: expiredBullets,}
+  }
+
+  const moveObjects = (s: State) => <State>{...s, aliens: s.aliens.map(moveObject), ship: moveObject(s.ship),}
+    /**
+     * This function is where the main gameplay loop takes place
+     * @param s the state of the game
+     * @param elapsed the amount of time taken place 
+     * @returns a new state reflective of the end of a gameplay loop and the elapsed time
+     * 
+     * Tick is where the majority of the gameplay takes place, and proccesses
+     * most of the states in the game. It outputs the final state that is eventually called
+     * by updateView. Tick essentially is called by the interval 10 observable, where it continously
+     * outputs the game state. It recieves the previous state using a scan, and then outputs another
+     * state reflective of what should happen in the 10ms called by interval. Eg moving objects,
+     * checking for game affects, handling gamelogic ect... This is all done through a large pipe
+     * of functions that each output different states onto each other depending on certain state properties. They are all defined above
+     */
     const tick = (s:State, elapsed:number)=>{
-      //Level Maker
-      if (s.aliens.length == 0){
-        if(s.status == 'playing'){
-          if(s.levelFormation.length == 0){
-            return <State>{...blankState({...s, status: s.infinite ? 'playing' : 'win'}), ship: s.infinite ? <Body>{...createShip(), lives: s.ship.lives}: {...s.ship, y: -700}}
-          }
-          return <State> ({
-            ...generateShields(generateAliens(s, ...s.levelFormation[0]), [createShield][0]),
-            levelFormation: s.levelFormation.slice(1),
-            bullets: [],
-            exit: s.bullets,
-            level: s.level + 1,
-            score: s.score + (s.level * 2000)
-          })
-        }
-      }
-      const not = <T>(f:(x:T)=>boolean)=>(x:T)=>!f(x),
-      expired = (b:Body)=>(elapsed - b.createTime) > 60,
-      expiredBullets:Body[] = s.bullets.filter(expired),
-      activeBullets = s.bullets.filter(not(expired));
-
-      return pipe(handleGameOver,handleCollisions, checkAlienDirection, checkAlienWin, checkShieldLives, checkEnemeyLives)({
+      return pipe(moveObjects, handleBullets, handleWinLoss, checkEndOfDefaultLevel, checkForNewLevel, handleCollisions, checkAlienDirection, checkAlienWin, checkShieldLives, checkEnemeyLives)({
         ...s,
-        ship: moveObject(s.ship),
-        bullets: activeBullets.map(moveObject),
-        aliens: s.aliens.map(moveObject), 
-        exit: expiredBullets,
         totalTime: elapsed,
       })
     }
-    class Tick { constructor(public readonly elapsed:number) {} }
-    class AlienShot { constructor(public readonly chance:number) {} }
-    class Move { constructor(public readonly direction:number) {} }
-    class StopMoving { constructor(public readonly stopMoving:Directions) {} }
-    class Shoot { constructor() {} }
-    class Play { constructor(public readonly infinite: Boolean) {} }
-     
-  //Might remove gameclock
-  const 
-  keyObservable = <T>(e:Event, k:Key, result:()=>T)=>
+
+  //These classes are used by observables streams to each indicate a different event
+  //which is then reduced to form one final state. While they are not streams they
+  //are all a streams output from an observable. Each class holds a value that conveys more
+  //information about the event
+  class Tick { constructor(public readonly elapsed:number) {} }  // ---The stream of time used to trigger tick
+  class RandomEvent { constructor(public readonly chance:number) {} } //---The stream of random numbers
+  class Move { constructor(public readonly direction:number) {} } //---The stream of key presses that allow movement 
+  class StopMoving { constructor(public readonly stopMoving:Directions) {} } //---The stream of key presses that stop movement 
+  class Shoot { constructor() {} } //---The stream of spacebar presses needed to shoot
+  class Play { constructor(public readonly infinite: Boolean) {} } //The stream of button presses for the in game interface
+  
+  /**
+  * This function allows the creation of observables streams from key event presses
+  * @param e The keydown or keyup event
+  * @param k The key being pressed
+  * @param result //An Observable that when subscribed streams the results of keydown or keyup presses
+  * This code was created using the asteroids example. It filters all keypresses for the corresponding key
+  * and makes sure that the key isn't recorded as repeatidly pressed down. 
+  */
+  const keyObservable = <T>(e:Event, k:Key, result:()=>T)=>
     fromEvent<KeyboardEvent>(document,e)
       .pipe(
         filter(({code})=>code === k),
         filter(({repeat})=>!repeat),
         map(result)),
 
-    moveLeft = keyObservable('keydown','ArrowLeft',()=>new Move(-4)),
-    moveRight = keyObservable('keydown','ArrowRight',()=>new Move(4)),
-    stopMoveLeft = keyObservable('keyup','ArrowLeft',()=>new StopMoving('left')),
-    stopMoveRight = keyObservable('keyup','ArrowRight',()=>new StopMoving('right')),
-    shoot = keyObservable('keydown','Space', ()=>new Shoot())
+  //Here are a bunch of observables created by the keyObservable functionm
+  moveLeft = keyObservable('keydown','ArrowLeft',()=>new Move(-4)),
+  moveRight = keyObservable('keydown','ArrowRight',()=>new Move(4)),
+  stopMoveLeft = keyObservable('keyup','ArrowLeft',()=>new StopMoving('left')),
+  stopMoveRight = keyObservable('keyup','ArrowRight',()=>new StopMoving('right')),
+  shoot = keyObservable('keydown','Space', ()=>new Shoot())
+  
+  //These two observables correlate to button presses by the two buttons displayed below the svg
+  const startGame = fromEvent<Event>(playButton, 'click').pipe(map(()=>new Play(false)))
+  const startInfinite = fromEvent<Event>(infiniteButton, 'click').pipe(map(()=>new Play(true)))
 
-    const startGame = fromEvent<Event>(playButton, 'click').pipe(map(()=>new Play(false)))
-    const startInfinite = fromEvent<Event>(infiniteButton, 'click').pipe(map(()=>new Play(true)))
-    //The victim of war
-    //spawner = new BehaviorSubject<Spawn>(new Spawn([createAlien, createAlien, createAlien]))
-    
-    const alienShot = (s: State, chance: number) =>
-      chance > s.aliens.filter((a: Body) => a.type == 'shooter').length - 1 ? {...s} : {...s, objCount: s.objCount + 1,bullets: s.bullets.concat(createEnemyBullet(s,s.aliens[chance%s.aliens.length]))}
-    
-    const generateRandomLevels = (s:State, chance: number)=>
-      !s.infinite ? {...s} : <State>{...s, levelFormation: s.levelFormation.length == 0 ? randomLevels[chance % randomLevels.length] : []}
-    
-    const reduceState = (s:State, e: Move | Tick | StopMoving | Shoot | AlienShot | Play) => 
-      e instanceof Move ? {...s,
-        ship: {...s.ship, xspeed: e.direction}} : 
-        //This ternary checks to see if the player is moving right when the upkey is pressed. If not it returns default state otherwise it sets speed of ship to 0
-      e instanceof StopMoving ?  e.stopMoving === 'right' ? 
-        s.ship.xspeed > 0 ? {...s, ship: {...s.ship, xspeed: 0}} :  {...s} : 
-        /*Below is the same logic as above but if the player is moving to the left*/ 
-        s.ship.xspeed < 0 ? {...s,ship: {...s.ship, xspeed: 0}} :  {...s} 
-      :
-      e instanceof Shoot ? {...s,
-        bullets: s.bullets.concat([createPlayerBullet(s, s.ship)]),
-        objCount: s.objCount + 1
-      }:
-      e instanceof AlienShot ? <State>generateRandomLevels(alienShot(s, e.chance), e.chance):
-      e instanceof Play ? <State> {...initialState, exit: s.exit.concat(s.aliens, s.bullets, s.shields), infinite: e.infinite ? true : false, levelFormation: e.infinite ?  []: levels}
-      :tick(s, e.elapsed)
-    ;
+  /**
+   * This function is used to create enemy bullets
+   * @param s The state of the game 
+   * @param chance a random number generated by a random stream from 0 to 100
+   * @returns A new state where an enemy bullet may be created
+   * 
+   * This function works by filtering all the aliens to create an array of shooters and then checks to see if
+   * the random number is within the bounds of the array. If not no bullet is fired and s is just returned.
+   * If the number is within the bounds of the array, the alien at that index gets passed into create EnemyBullet,
+   * and a game state is outputted to reflect this new bullet
+   */
+  const alienShot = (s: State, chance: number) =>
+    chance > s.aliens.filter((a: Body) => a.type == 'shooter').length - 1 ? {...s} : {...s, objCount: s.objCount + 1,bullets: s.bullets.concat(createEnemyBullet(s,s.aliens[chance]))}
+  
+  /**
+   * This function just outputs a state that is the same as the input state but with a different random number property
+   * @param s the state of the game
+   * @param chance the random number
+   * @returns a new state of the game that is the same except for it's random number value which is chance
+   * This function allows for any random calculations to be made with state
+   */
+  const generateRandomNumber = (s:State, chance: number)=>
+    <State>{...s, randomNumber: chance}
+  
+  /**
+   * Encapsulates all the possible transformations of a state 
+   * @param s the state before transformations are applied
+   * @param e used to identify different observable streams that are being reduced
+   * @returns the reduced state
+   * This function is what allows for the different transformations of the code to appear to happen 
+   * co-currently. This is because all the different transformations are combined into one final 
+   * state that can later be used to create the game. While some observable streams like tick
+   * also hold multiple transformations of a state, reduceState is special as it allows for 
+   * different streams to be combined into one.
+   */
+  const reduceState = (s:State, e: Move | Tick | StopMoving | Shoot | RandomEvent | Play) => 
+    e instanceof Move ? {...s,
+      ship: {...s.ship, xspeed: e.direction}} :      //Set the ships direction based on the left or right key press
+    e instanceof StopMoving ?  e.stopMoving === 'right' ? 
+      s.ship.xspeed > 0 ? {...s, ship: {...s.ship, xspeed: 0}} :  {...s} : //These two see if the ship should stop moving
+      s.ship.xspeed < 0 ? {...s,ship: {...s.ship, xspeed: 0}} :  {...s} 
+    :
+    e instanceof Shoot ? {...s,
+      bullets: s.bullets.concat([createPlayerBullet(s, s.ship)]), //This is called when space is pressed and is what creates the players bullets
+      objCount: s.objCount + 1
+    }:
+    e instanceof RandomEvent ? <State>generateRandomNumber(alienShot(s, e.chance), e.chance): //This changes a states random numbers and calls alien shots
+    //Play resets the game state to either infinite mode or regular mode. The states outputted are the starts of levels with some values changed to make it a pure reset
+    e instanceof Play ? e.infinite ? createInfiniteLevel({...blankState(s), ship: {...s.ship, lives: 3}, score: 0, level: -1, infinite: true}) : <State>{...initialState, exit: s.exit.concat(s.aliens, s.bullets, s.shields)}
+    : tick(s, e.elapsed); //Tick is called to reflect most other transformations in game logic
+
   // an instance of the Random Number Generator with a specific seed
   const rng = new RNG(20)
-  // return a random number in the range [-1,1]
+  // return a random number in the range [0,100]
   const nextRandom = ()=>rng.nextInt() % 100
 
-    // A stream of random numbers
-    const randNum$ = interval(100).pipe(map(nextRandom), map((chance) => new AlienShot (chance))) // .pipe(map(nextRandom), map((chance) => new AlienShot (chance))));
+    // A stream of random numbers created by mapping interval 100 to nextRandom, and then creating a new observable
+    //that can be merged so that it can be reduced
+    const randNum$ = interval(100).pipe(map(nextRandom), map((chance) => new RandomEvent (chance)))
+    
+    /**
+     * This observable emits numbers every 10 ms. It is then mapped so that it is a stream
+     * of Tick with the time elapsed passed into Tick, which is used for bullet time expiration.
+     * It then merges all other observables before scan calls reduce on the stream to output the final state of the
+     * game (for a given time interval). Scan originally passes in initialState but every interval it accumulates the next
+     * output of the stream leading to the gameplay loop. Finally subscribe is called to turn interval into a stream of states
+     * which are passed into updateView to create the graphics for the game using the state/
+     */
     interval(10).pipe(
       map(elapsed => new Tick (elapsed)),
       merge(moveLeft, moveRight, stopMoveLeft, stopMoveRight, shoot),
@@ -667,3 +855,4 @@ class RNG {
     return this.nextInt() / (this.m - 1);
   }
 }
+//Notes to self, update comments to reflect side effects, add instructions and double check worksheet
