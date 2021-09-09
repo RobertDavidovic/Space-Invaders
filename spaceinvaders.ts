@@ -1,3 +1,11 @@
+//Student Number : 31459609
+//Author : Robert Davidovic
+//Date: 9/9/2021
+//Space Invaders code 
+
+// Note: Most of the functions defined are pure functions so unless specified otherwise there are no side
+// effects caused by the functions. 
+
 import { interval, fromEvent, pipe} from 'rxjs'
 import { map, filter, scan, merge} from 'rxjs/operators'
 
@@ -15,11 +23,9 @@ type BodyCreator = ((state: State, x: number, y: number) => Body)
 const Constants = {
   CanvasSize: 600,
   AlienStartPoint: 50, //The starting x spawn for aliens
-  ShieldDistance:25, //How far apart shields are
-  ShieldVerticalPos: 500, //Where shields spawn on y axis
-  BulletExpirationTime: 60, 
+  BulletExpirationTime: 150, 
   BulletRadius: 3,
-  BulletSpeed: -10,
+  BulletSpeed: -7,
   StartTime: 0,
   ShipRadius: 20,
   Radius: 10 //The radius of all circle objects that aren't bullets
@@ -189,8 +195,8 @@ function spaceinvaders() {
   //These two functions are the result of createbullet. 
   //Now that they have their values assigned they just need the game state and
   //the owner
-  const createPlayerBullet = createBullet("player-bullet", -10, -20)
-  const createEnemyBullet = createBullet("enemy-bullet", 7)
+  const createPlayerBullet = createBullet("player-bullet", Constants.BulletSpeed, -20)
+  const createEnemyBullet = createBullet("enemy-bullet", -Constants.BulletSpeed)
 
 
   
@@ -208,6 +214,7 @@ function spaceinvaders() {
    * but is used so often that it has it's own type. It is a function used to create
    * objects with type Body, and determines their position
    * This function has the parameters
+   * 
    * @param s the current state of the game and is needed to create the id of the body
    * @param xPos the x value of a created Body
    * @param yPos the y value of a created Body
@@ -233,9 +240,9 @@ function spaceinvaders() {
   //Here are a few functions that return an alien of a specific type
   //All special information is assigned so only position needs to be
   //passed in to create an alien
-  const defaultAlien = createBody("alien",2)
-  const shooterAlien = createBody("shooter",2)
-  const tankAlien = createBody("tank",2,2)
+  const defaultAlien = createBody("alien",1.5)
+  const shooterAlien = createBody("shooter",1.5)
+  const tankAlien = createBody("tank",1.5,2)
   const createShield = createBody("shield", 0, 3)
 
 
@@ -266,6 +273,8 @@ function spaceinvaders() {
     [[shooterAlien, tankAlien, defaultAlien, shooterAlien, shooterAlien, defaultAlien]],
     [[tankAlien, tankAlien, shooterAlien, tankAlien, tankAlien]],
     [[shooterAlien, shooterAlien, shooterAlien, shooterAlien, shooterAlien, tankAlien]],
+    [[tankAlien, tankAlien, tankAlien, tankAlien, shooterAlien, tankAlien]],
+    [[shooterAlien]]
   ]
 
   /**
@@ -323,10 +332,14 @@ function spaceinvaders() {
    * @param s The current state of the game before the aliens are generator
    * @param f The list of fuctions used to create an aliens in a level
    * @returns a state with a grid of aliens attatched to it
+   * 
    * It works by recursively calling generate bodyBody row for each element in f
    * with one element representing one row of aliens. It then slices f to
    * pass the 2nd row and onwards... The function stops when there are no more rows that
-   * need to be created, indicated by f.length being 0
+   * need to be created, indicated by f.length being 0. The idea behind this is to
+   * let each each element equal one row that it recursively slices until there 
+   * are no rows left. To streamline the design it just passes an array of functions,
+   * with each function being called until the row is complete, where it is then sliced.
    */
   const generateAliens = (s: State, ...f: BodyCreator[]): State => f.length == 0 ? {
     ...s
@@ -343,6 +356,21 @@ function spaceinvaders() {
   const generateShields = (s: State, ...f: BodyCreator[]): State => generateBodyRow(s, 0, f.length, shieldGrid, f)
 
   /**
+   * Simple math to get the distance between two points
+   * @param firstBody first body to check distance for
+   * @param secondBody second body to check distance for
+   * @returns the distance between the points
+   * This is needed to determine if two objects collide, as if their 
+   * radius' overlap, then their combined radius size will be greater
+   * than the distance between the two points.
+   */
+  const collisionDetector = (firstBody:Body, secondBody: Body) : number=>{
+    const x = firstBody.x - secondBody.x;
+    const y = firstBody.y - secondBody.y;
+    return Math.sqrt(x*x + y*y)
+   }
+
+  /**
    * This function is used to determine the effects of collisions
    * @param s The state of the game to check collisions for
    * @returns A new state where the effects of the collisions are applied to s
@@ -353,7 +381,7 @@ function spaceinvaders() {
    * I decided to seperate them in order to make logic easier to follow and to allow easier expansions
    * of code when trying to modify specific collisions
    */
-  const handleCollisions = (s: State) => {
+  const handleCollisions = (s: State) : State => {
     const
       //This filter creates a list of objects containing the information about all bullets fired by the player
       playerBullets = s.bullets.filter((a: Body) => a.type == 'player-bullet'),
@@ -416,7 +444,7 @@ function spaceinvaders() {
    * This function returns another function that checks if any given alien satisfies the position check
    * @param f //The function used to determine the position check
    * @param coordinate //The property of the body that needs to be checked in f
-   * @returns Another function that accepts a boolean and confirms if an alien satifies the position check
+   * @returns Another function that accepts a body and returns a boolean
    * I created this function as there were multiple positions that needed to be checked for all the aliens in the game
    * and to make the code more consise and allowing the checks to be piped. 
    */
@@ -439,7 +467,7 @@ function spaceinvaders() {
    * It checks if any alien has passed any of the bounds and if so flips trhe aliens. If not
    * return the state inputted
    */
-  const checkAlienDirection = (s:State) => {
+  const checkAlienDirection = (s:State) : State=> {
     return checkAlienLeftBound(s) || checkAlienRightBound(s) ? <State>{...s, aliens: s.aliens.map(flipAlienDirection)} : {...s}
   }
 
@@ -453,7 +481,7 @@ function spaceinvaders() {
    * It just checks if aliens have gotten too far down or if the player has lost all
    * of their health. If so change the game status and the lives on the player to 0 (incase player lost in way not from health loss)
    */
-  const checkAlienWin = (s:State) => {
+  const checkAlienWin = (s:State) : State => {
     if(checkAlienBottomBound(s) || s.ship.lives <= 0){
       return <State>{...s, status: 'loss', ship: {...s.ship, lives: 0}}
     }
@@ -463,11 +491,13 @@ function spaceinvaders() {
   /**
    * Creates a function that can be used to check the lives of a body
    * @param property the array of the state that needs to be checked for health
-   * @returns a function that has a property to check, with only the gamestate as input
+   * @returns a function with the state as input that outputes a state,
    * This function filters through a given property in a state and determines any bodies with
    * less than 0 health, It then returns a state with those elements removed and added to exit
+   * The propertyKey and the curry lets other functions be created with only the state as input
+   * with the key corresponding to the property the function wants to check
    */
-  const checkBodyLives = (property: PropertyKey) => {
+  const checkBodyLives = (property: PropertyKey) : (s:State)=>State => {
     return (s: State) => {
       const deadBodies = (s[property]).filter((b:Body)=> b.lives <= 0)
       return <State>{...s, [property]: cut(s[property])(deadBodies), exit: s.exit.concat(deadBodies)}
@@ -494,34 +524,100 @@ function spaceinvaders() {
     level: s.level
   }}
 
-  //const generateRandomLevels = (s:State, chance: number)=>
- // !s.infinite ? {...s} : <State>{...s, levelFormation: s.levelFormation.length == 0 ? randomLevels[chance % randomLevels.length] : []}
-   const createInfiniteLevel = (s: State)=> <State>{...s, levelFormation: randomLevels[s.randomNumber* s.totalTime % randomLevels.length], level: s.level + 1}
+
+  //Below are all the functions associated with creating levels. Two are general functions for when a level is actually transformed,
+  //and two are checker functions, which determine if a new level should be made or not. The idea behind this is to have the level
+  //checkers check the states, and then apply the other two functions to create a new state reflective of the level.
    
-   const createDefaultLevel = (s: State)=> <State>{...s, bullets: [], exit: s.bullets, level: s.level + 1, score: s.score + (s.level * 2000), levelFormation: s.levelFormation.slice(1)}
+   //Returns a state corresponding to a level in levels. It then slices levelFormation so the next time it is called it returns the next level
+   //Some cleanup and mild transforming of the state is done to show the level increasing, score increasing and bullets disapearing. 
+   const createDefaultLevel = (s: State) : State=> <State>{...s, bullets: [], exit: s.bullets, level: s.level + 1, score: s.score + (s.level * 2000), levelFormation: s.levelFormation.slice(1)}
 
-   const checkForNewLevel = (s: State)=> s.aliens.length == 0 && s.status == 'playing'? generateShields(generateAliens(s.infinite ? createInfiniteLevel(s) : createDefaultLevel(s), ...s.levelFormation[0]), [createShield][0]) : {...s}  
+   //Similar to create default level except instead of slicing the level formation, it just randomly selects a new level using s.random number
+   //The totalTime is multiplied by this value to prevent the next level always being the same as the previous, as randomnumbers generate less frequently than tick.
+   const createInfiniteLevel = (s: State) : State=> <State>{...s, levelFormation: randomLevels[s.randomNumber* s.totalTime % randomLevels.length], level: s.level + 1}
 
-  const checkEndOfDefaultLevel = (s:State) => s.levelFormation.length == 0 && s.status == 'playing' && !s.infinite && s.aliens.length == 0? <State>{...blankState(s), status: 'win'} : {...s}
+   //This check function is piped by tick and sees if all the aliens are dead. If they are it generates shields and aliens, which are dependant on if s.infinite is true or not.
+   //If it is true it creates an infinite level, if not it creates a default level
+  const checkForNewLevel = (s: State) : State=> s.aliens.length == 0 && s.status == 'playing'? generateShields(generateAliens(s.infinite ? createInfiniteLevel(s) : createDefaultLevel(s), ...s.levelFormation[0]), [createShield][0]) : {...s}  
+
+  //This function is piped by tick and determines if the player has beaten all the levels. If they have, it transforms the state into a blank state and sets the status to win.
+  const checkEndOfDefaultLevel = (s:State) : State => s.levelFormation.length == 0 && s.status == 'playing' && !s.infinite && s.aliens.length == 0? <State>{...blankState(s), status: 'win'} : {...s}
   /**
    * This checks if there is a game over or won and triggers the blank state to display the game over screen
    * @param s the state to check for a win/loss
    * @returns a blankstate with the status as loss
    * This is what creates the empty screen for the text to appear
    */
-  const handleWinLoss = (s:State)=> s.status == 'loss' ? blankState({
+  const handleWinLoss = (s:State): State=> s.status == 'loss' ? blankState({
     ...s, status: 'loss'}): s.status == 'win'?  ({
     ...s, status: 'win'}): {...s}
 
-  const handleBullets = (s:State)=>{
+
+    
+  /**
+   * This function moves an object along it's x and y speeds
+   * @param o the body that is to be moved
+   * @returns a body reflective of an objects movement
+   * This code can be applied ship to allow player movement
+   * or mapped to allow arrays of objects to move.
+   * torusWrap insures the object stays within the x bounds
+   */
+  const moveObject = (o:Body) : Body => <Body> {
+    ...o,
+    x: torusWrap(o.x + o.xspeed),
+    y: o.y + o.yspeed
+    }
+
+  /**
+   * This function handles all the bullets in the game
+   * @param s the state containing the bullets to handle
+   * @returns a new state with the bullets handled
+   * This function does two things. One it checks to see if bullets
+   * are expired by checking their create time and the current time,
+   * and then filtering those bullets out and removing them.
+   * The next thing it does it move the bullet
+   */
+  const handleBullets = (s:State) : State=>{
     const not = <T>(f:(x:T)=>boolean)=>(x:T)=>!f(x),   //This part of the code just checks for expired bullets
-    expired = (b:Body)=>(s.totalTime - b.createTime) > 60,
+    expired = (b:Body)=>(s.totalTime - b.createTime) > Constants.BulletExpirationTime,
     expiredBullets:Body[] = s.bullets.filter(expired),
     activeBullets = s.bullets.filter(not(expired));
     return {...s, bullets: activeBullets.map(moveObject), exit: expiredBullets,}
   }
 
-  const moveObjects = (s: State) => <State>{...s, aliens: s.aliens.map(moveObject), ship: moveObject(s.ship),}
+
+  /**
+   * Reverses the xSpeed of a body and moves them down the canvas
+   * @param o the body to be flipped
+   * @returns a body that is traveling in the opposite direction
+   * This is what causes the aliens to bounce against the sides
+   * of the canvas.
+   */
+  const flipAlienDirection = (o:Body): Body => <Body>{
+    ...o,
+    xspeed: -o.xspeed,
+    y: o.y + AlienConstants.DownJumpOffset 
+  }
+
+  /**
+   * Determines the x positon of a position after passing canvas bounds
+   * @param x the x position to check
+   * @returns a new position within the bounds
+   * This is what allows the player to move across the sides of 
+   * the canvas and loop around
+   */
+  const torusWrap = (x: number) : number => { 
+    const s=Constants.CanvasSize, 
+      wrap = (v:number) => v < 0 ? v + s : v > s ? v - s : v;
+    return wrap(x)
+  }
+
+  //This is piped through tick, and just maps moveobject onto the aliens and ships, causing them to move
+  const moveObjects = (s: State) : State => <State>{...s, aliens: s.aliens.map(moveObject), ship: moveObject(s.ship),}
+
+
+
     /**
      * This function is where the main gameplay loop takes place
      * @param s the state of the game
@@ -535,12 +631,13 @@ function spaceinvaders() {
      * state reflective of what should happen in the 10ms called by interval. Eg moving objects,
      * checking for game affects, handling gamelogic ect... This is all done through a large pipe
      * of functions that each output different states onto each other depending on certain state properties. They are all defined above
+     * The ...Pipe is used to make sure the function returns a state, as without the {} and ..., tick : {}
      */
-    const tick = (s:State, elapsed:number)=>{
-      return pipe(moveObjects, handleBullets, handleWinLoss, checkEndOfDefaultLevel, checkForNewLevel, handleCollisions, checkAlienDirection, checkAlienWin, checkShieldLives, checkEnemeyLives)({
+    const tick = (s:State, elapsed:number): State=>{
+      return <State>{...pipe(moveObjects, handleBullets, handleWinLoss, checkEndOfDefaultLevel, checkForNewLevel, handleCollisions, checkAlienDirection, checkAlienWin, checkShieldLives, checkEnemeyLives)({
         ...s,
         totalTime: elapsed,
-      })
+      })}
     }
 
   //These classes are used by observables streams to each indicate a different event
@@ -570,8 +667,8 @@ function spaceinvaders() {
         map(result)),
 
   //Here are a bunch of observables created by the keyObservable functionm
-  moveLeft = keyObservable('keydown','ArrowLeft',()=>new Move(-4)),
-  moveRight = keyObservable('keydown','ArrowRight',()=>new Move(4)),
+  moveLeft = keyObservable('keydown','ArrowLeft',()=>new Move(-3)),
+  moveRight = keyObservable('keydown','ArrowRight',()=>new Move(3)),
   stopMoveLeft = keyObservable('keyup','ArrowLeft',()=>new StopMoving('left')),
   stopMoveRight = keyObservable('keyup','ArrowRight',()=>new StopMoving('right')),
   shoot = keyObservable('keydown','Space', ()=>new Shoot())
@@ -588,11 +685,11 @@ function spaceinvaders() {
    * 
    * This function works by filtering all the aliens to create an array of shooters and then checks to see if
    * the random number is within the bounds of the array. If not no bullet is fired and s is just returned.
-   * If the number is within the bounds of the array, the alien at that index gets passed into create EnemyBullet,
-   * and a game state is outputted to reflect this new bullet
+   * If the number is within the bounds of the array, an alien is selected using chance * time, which then is
+   * used to create a bullet
    */
-  const alienShot = (s: State, chance: number) =>
-    chance > s.aliens.filter((a: Body) => a.type == 'shooter').length - 1 ? {...s} : {...s, objCount: s.objCount + 1,bullets: s.bullets.concat(createEnemyBullet(s,s.aliens[chance]))}
+  const alienShot = (s: State, chance: number) : State =>
+    chance > s.aliens.filter((a: Body) => a.type == 'shooter').length - 1 ? {...s} : {...s, objCount: s.objCount + 1,bullets: s.bullets.concat(createEnemyBullet(s,s.aliens[(chance * s.totalTime) % s.aliens.length]))}
   
   /**
    * This function just outputs a state that is the same as the input state but with a different random number property
@@ -601,7 +698,7 @@ function spaceinvaders() {
    * @returns a new state of the game that is the same except for it's random number value which is chance
    * This function allows for any random calculations to be made with state
    */
-  const generateRandomNumber = (s:State, chance: number)=>
+  const generateRandomNumber = (s:State, chance: number) : State=>
     <State>{...s, randomNumber: chance}
   
   /**
@@ -613,9 +710,11 @@ function spaceinvaders() {
    * co-currently. This is because all the different transformations are combined into one final 
    * state that can later be used to create the game. While some observable streams like tick
    * also hold multiple transformations of a state, reduceState is special as it allows for 
-   * different streams to be combined into one.
+   * different streams to be combined into one. While no side effects are explicitly caused
+   * reduceState can interfere with other sections of the program as, it causes multiple 
+   * states to reduced to one, and in this reduction if not done properly adverse effects can be created.  
    */
-  const reduceState = (s:State, e: Move | Tick | StopMoving | Shoot | RandomEvent | Play) => 
+  const reduceState = (s:State, e: Move | Tick | StopMoving | Shoot | RandomEvent | Play) : State=> 
     e instanceof Move ? {...s,
       ship: {...s.ship, xspeed: e.direction}} :      //Set the ships direction based on the left or right key press
     e instanceof StopMoving ?  e.stopMoving === 'right' ? 
@@ -628,7 +727,7 @@ function spaceinvaders() {
     }:
     e instanceof RandomEvent ? <State>generateRandomNumber(alienShot(s, e.chance), e.chance): //This changes a states random numbers and calls alien shots
     //Play resets the game state to either infinite mode or regular mode. The states outputted are the starts of levels with some values changed to make it a pure reset
-    e instanceof Play ? e.infinite ? createInfiniteLevel({...blankState(s), ship: {...s.ship, lives: 3}, score: 0, level: -1, infinite: true}) : <State>{...initialState, exit: s.exit.concat(s.aliens, s.bullets, s.shields)}
+    e instanceof Play ? e.infinite ? createInfiniteLevel({...blankState(s), ship: createShip(), score: 0, level: -1, infinite: true, status: 'playing'}) : <State>{...initialState, exit: s.exit.concat(s.aliens, s.bullets, s.shields)}
     : tick(s, e.elapsed); //Tick is called to reflect most other transformations in game logic
 
   // an instance of the Random Number Generator with a specific seed
@@ -656,142 +755,162 @@ function spaceinvaders() {
       scan(reduceState, initialState)
     ).subscribe(updateView)
 
+  /**
+   * This method modifies spaceinvaders.html so that it reflects the game state
+   * @param s the state needing to be reflected
+   * 
+   * This method is subsribed to the interval 10 observable with the idea that
+   * all the game logic and processors are done within that stream, and then
+   * all the information is then displayed by updateView. By having updateView
+   * only change the visuals of the game and not allow for inputs, it ensures 
+   * that all other functions can become pure (thus easier to debug, test and write)
+   * as it is the only imperative code used. So in summarary all previous methods
+   * transform the state and updateView actually allows the player to see the state.
+   * This function does use imperative code, and has many side effects, which are all visual
+   * and do not change game logic. Unless specified otherwise, every method within updateView
+   * has the side effect of altering spaceInvaders.html, including updateView itself.
+   */
+  function updateView(s: State): void {
+    //Get a reference to the svg which is where the gameplay takes place
+    const svg = document.getElementById("canvas") !
 
-    function updateView(s:State): void {
-      const svg = document.getElementById("canvas")!
-      function createText(text: string, colour: string): Element{
-        const v = document.createElementNS(svg.namespaceURI, "text")!;
-        attr(v,{x:Constants.CanvasSize/3,y:Constants.CanvasSize/2,class:"message", id: "message", fill: colour});
-        v.textContent = text;
-        svg.appendChild(v);
-        return v
+    /**
+     * This method is used to create a text element on the svg to display a message to the player
+     * @param text the string is contained within the text
+     * @param colour the colour of the text
+     * @returns an HTML element coloured with text, of class and id "message"
+     * It is what allows the "Game Over" and "You Won!" text to appear
+     */
+    function createText(text: string, colour: string): Element {
+      const v = document.createElementNS(svg.namespaceURI, "text") !;
+      //Assign attributes
+      attr(v, { 
+        x: Constants.CanvasSize / 3, //These make the text appear near the centre
+        y: Constants.CanvasSize / 2,
+        class: "message",
+        id: "message",
+        fill: colour
+      });
+      v.textContent = text; 
+      svg.appendChild(v); //Add the element to the svg
+      return v
+    }
+
+    //Changes the text at the top of the svg to replay certain game information
+    lives.textContent = `Lives: ${s.ship.lives}`; 
+    score.textContent = `Score: ${s.score}`;
+    level.textContent = `Level: ${s.level}`;
+
+    //This chunk of code attempts to get the text element of type message
+    //and then checks if the element exists. If it doesn't it will
+    //display a relevant message for the players state (unless the state is playing)
+    //otherwise it will remove any message if the status is playing. This is needed
+    //so the text can be removed.
+    const statusText = document.getElementById("message")
+    if (!statusText) {
+      if (s.status == 'loss') {
+        createText("Game Over", "red")
       }
-
-      lives.textContent = `Lives: ${s.ship.lives}`;
-      score.textContent = `Score: ${s.score}`;
-      level.textContent = `Level: ${s.level}`;
-      const ship = document.getElementById("ship")!;
-      ship.setAttribute('transform',
-       `translate(${s.ship.x},${s.ship.y}) rotate(${0})`)
-       ship.classList.add(s.ship.type)
-       //Adding bullet code
-       s.bullets.forEach(b=>{
-        const createBulletView = ()=>{
-          const v = document.createElementNS(svg.namespaceURI, "ellipse")!;
-          v.setAttribute("id",b.id);
-          attr(v,{id:b.id,rx:4,ry:4});
-          //v.classList.add("bullet")
-          v.classList.add(b.type)
-          svg.appendChild(v)
-          return v;
-        }
-
-        
-
-        const v = document.getElementById(b.id) || createBulletView();
-        v.setAttribute("cx",String(b.x))
-        v.setAttribute("cy",String(b.y))
-
-      })      
-      
-      const statusText = document.getElementById("message")
-      if (!statusText){
-        if(s.status == 'loss') {
-          createText("Game Over", "red")
-         }
-         if (s.status == 'win'){
-           createText("You've Won!", "white")
-         }
+      if (s.status == 'win') {
+        createText("You've Won!", "white")
       }
-      else if (s.status == "playing"){
-        svg.removeChild(statusText) 
-      }
-      //Adding Alien code --Make better later
-      s.aliens.forEach(b=>{
-        const createAlienView = ()=>{
-          const v = document.createElementNS(svg.namespaceURI, "ellipse")!;
-          v.setAttribute("id",b.id);
-          attr(v,{id:b.id,rx:Constants.Radius,ry:Constants.Radius});
-          if(b.type == "tank"){
-            v.setAttribute("fill", `rgb(${(b.lives * 70) + 150}, ${(b.lives * 70)+ 50}, ${(b.lives * 10)+ 10})`)
-          }
-          v.classList.add(b.type)
-          svg.appendChild(v)
-          return v;
-        }
-        
-        const v = document.getElementById(b.id) || createAlienView();
-        v.setAttribute("cx",String(b.x))
-        v.setAttribute("cy",String(b.y))
-      })
-      //Shield
-      s.shields.forEach(b=>{
-        const createAlienView = ()=>{
-          const v = document.createElementNS(svg.namespaceURI, "ellipse")!;
-          v.setAttribute("id",b.id);
-          attr(v,{id:b.id,rx:Constants.Radius,ry:Constants.Radius});
-          //v.classList.add("bullet")
-          v.classList.add(b.type)
-          svg.appendChild(v)
-          return v;
-        }
-        
-        const v = document.getElementById(b.id) || createAlienView();
-        v.setAttribute("cx",String(b.x))
-        v.setAttribute("cy",String(b.y))
-        v.setAttribute("fill", `rgb(${(b.lives * 20) + 95}, ${(b.lives * 20)+ 158}, ${(b.lives * 20)+ 160})`)
-      })
+    } 
+    else if (s.status == "playing") {
+      svg.removeChild(statusText)
+    }
+
+    //This code gets the ship element and just sets it's position
+    //to the corresponding position of the ship in the state
+    const ship = document.getElementById("ship") !;
+    ship.setAttribute('transform',
+      `translate(${s.ship.x},${s.ship.y}) rotate(${0})`)
+    ship.classList.add(s.ship.type)
     
-      s.exit.forEach(o=>{
-        const v = document.getElementById(o.id);
-        if(v) svg.removeChild(v)
-      })
+    /**
+     * This function is used for applying body views and applying transformations
+     * @param transforms a list of functions that take a body and element
+     * @returns a function that accepts a body and returns void
+     * This function was created to make assigning different attributes to html elements easier.
+     * The idea is that you send a list of functions that each change the attributes
+     * of a html object. Then every function is applied to the element which gives it's features.
+     * This can be foreached onto every element to have every element have the list of transforms applied
+     */
+    const bodyTransformations = (transforms: ((b:Body, v:Element)=>void)[]) : (b:Body)=>void =>{
+      return (b:Body) => {
+        //This function creates the html element if it isn't there
+        function createBodyView() {
+          const v = document.createElementNS(svg.namespaceURI, "ellipse")!; 
+          attr(v,{id:b.id,rx:b.collisionRadius,ry:b.collisionRadius}); //All bodies besides the ship are circles so they all share certain attributes
+          v.classList.add(b.type) 
+          svg.appendChild(v)
+          return v;
+        }
+        const v = document.getElementById(b.id) || createBodyView();
+        attr(v,{cx:b.x,cy:b.y});
+        transforms.forEach(transform => { //Apply transformer functions on the body to change it's attributes
+          transform(b,v)
+        });
+
+      };
     }
-}   
-  // the following simply runs your space invaders function on window load.  Make sure to leave it in place.
-  if (typeof window != 'undefined')
-    window.onload = ()=>{
-      spaceinvaders();
+
+    /**
+     * A simple transformer function that sets an attribute based on the bodies type
+     * @param type the type to be checking to see if a transformation is needed
+     * @param attribute what attribute needs to change
+     * @param newAttribute a function returning the changed attribute value
+     * @returns a function that can accept a body and element as an arguement
+     */
+    const checkAndSetTransform = (type: string, attribute: string, newAttribute : (b:Body)=>string) : (b:Body, v:Element)=> void =>{
+      return (b:Body, v:Element)=>{
+        if (b.type == type) {
+          v.setAttribute(attribute, newAttribute(b))
+        }
+      }
     }
-  
 
-//Object Movement
-const moveObject = (o:Body) => <Body> {
-  ...o,
-  x: torusWrap(o.x + o.xspeed),
-  y: o.y + o.yspeed
-}
+    //These are used for the colour transformation of tank aliens by passing values into checkAndSetTransform
+    const tankColours = (b:Body)=> `rgb(${(b.lives * 70) + 150}, ${(b.lives * 70)+ 50}, ${(b.lives * 10)+ 10})`
+    const tankBodyTransformColour = checkAndSetTransform("tank", "fill", tankColours)
 
-const flipAlienDirection = (o:Body) => <Body>{
-  ...o,
-  xspeed: -o.xspeed,
-  y: o.y + AlienConstants.DownJumpOffset 
-}
-// Screen Wrapper
-const torusWrap = (x: number) : number => { 
-  const s=Constants.CanvasSize, 
-    wrap = (v:number) => v < 0 ? v + s : v > s ? v - s : v;
-  return wrap(x)
-}
+    //These are used for the colour transformation of shields by passing values into checkAndSetTransform
+    const shieldColours = (b:Body)=> `rgb(${(b.lives * 20) + 95}, ${(b.lives * 20)+ 158}, ${(b.lives * 20)+ 160})`
+    const shieldBodyTransformColour = checkAndSetTransform("shield", "fill", shieldColours)
 
+    //This creates the transforms which can then be applied to all the bodies
+    const alienBodyTransforms = bodyTransformations([tankBodyTransformColour])
+    const shieldBodyTransforms = bodyTransformations([shieldBodyTransformColour])
+    const bulletBodyTransforms = bodyTransformations([])
+    
+    //Application of transforms into bodies
+    s.aliens.forEach(alienBodyTransforms)
+    s.shields.forEach(shieldBodyTransforms)
+    s.bullets.forEach(bulletBodyTransforms)
 
+    //Remove any elements that have their corresponding data removed from the state of the game
+    s.exit.forEach(o => {
+      const v = document.getElementById(o.id);
+      if (v) svg.removeChild(v)
+    })
+  }
+  }
 
+// the following simply runs your space invaders function on window load.  Make sure to leave it in place.
+if (typeof window != 'undefined')
+  window.onload = ()=>{
+    spaceinvaders();
+  }
 
 
 /**
  * set a number of attributes on an Element at once
  * @param e the Element
  * @param o a property bag
+ * Contains side effects of attributes being set
  */         
  const attr = (e:Element,o:Object) =>
  { for(const k in o) e.setAttribute(k,String(o[k])) }
 
-
- const collisionDetector = (firstBody:Body, secondBody: Body)=>{
-  const x = firstBody.x - secondBody.x;
-  const y = firstBody.y - secondBody.y;
-  return Math.sqrt(x*x + y*y)
- }
 
  /**
  * array a except anything in b
@@ -855,4 +974,3 @@ class RNG {
     return this.nextInt() / (this.m - 1);
   }
 }
-//Notes to self, update comments to reflect side effects, add instructions and double check worksheet
